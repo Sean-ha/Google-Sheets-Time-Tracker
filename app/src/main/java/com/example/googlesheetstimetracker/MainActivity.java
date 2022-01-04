@@ -33,7 +33,9 @@ import com.google.api.services.sheets.v4.model.ValueRange;
 import java.io.File;
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -251,18 +253,16 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected Void doInBackground(Void... params) {
             LocalDateTime now = LocalDateTime.now();
-            // Before 5AM counts as the previous day
-            if (now.getHour() <= 5) {
-                now = now.minusDays(1);
-            }
-
             if (clockIn) {
+                // Before 5AM counts as the previous day
+                if (now.getHour() <= 5) {
+                    now = now.minusDays(1);
+                }
                 clockIn(now);
             }
             else {
                 clockOut(now);
             }
-
 
             return null;
         }
@@ -274,11 +274,11 @@ public class MainActivity extends AppCompatActivity {
                 String lastMonth = getLastDataInColumn("B");
                 // Same month
                 if (lastMonth.equalsIgnoreCase(now.getMonth().toString())) {
-                    // TODO: Optimize this (it's doing repeated api calls)
                     int lastDayIndex = getLastRowInColumn("C");
                     String lastDay = getDataInCell("C", lastDayIndex);
                     int insertPos = lastDayIndex;
                     // Continues to try to search upwards until it finds a valid day.
+                    // Can result in large number of API calls (though it shouldn't be an issue for normal use cases)
                     while (lastDay == null && lastDayIndex > 1) {
                         lastDayIndex--;
                         lastDay = getDataInCell("C", lastDayIndex);
@@ -295,11 +295,22 @@ public class MainActivity extends AppCompatActivity {
 
         private void clockOut(LocalDateTime now) {
             // No need to check date, we can assume that the date exists already
-            // TODO: Optimize this (it's doing repeated api calls)
+
+            // Get current time as string
             int lastDayIndex = getLastRowInColumn("C");
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("h:mm a");
             String currTime = now.format(formatter);
-            appendRow("F" + (lastDayIndex), Arrays.asList(currTime), "OVERWRITE");
+
+            // Get time difference between start and stop
+            String startTime = getLastDataInColumn("E");
+            System.out.println(startTime);
+            LocalTime time = LocalTime.parse(startTime, formatter);
+            LocalDateTime startDateTime = LocalDateTime.of(now.getYear(), now.getMonth(), now.getDayOfMonth(), time.getHour(), time.getMinute());
+            long minutesBetween = ChronoUnit.MINUTES.between(startDateTime, now);
+
+            appendRow("F" + (lastDayIndex), Arrays.asList(currTime, minutesBetween), "OVERWRITE");
+
+            // TODO: Let user input notes here
         }
 
         @Override
