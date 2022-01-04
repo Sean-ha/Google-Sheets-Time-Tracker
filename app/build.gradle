@@ -5,7 +5,7 @@ android {
     buildToolsVersion "30.0.0"
     defaultConfig {
         applicationId "com.example.googlesheetstimetracker"
-        minSdkVersion 23
+        minSdkVersion 26
         targetSdkVersion 29
         versionCode 1
         versionName "1.0"
@@ -37,6 +37,11 @@ dependencies {
     implementation 'com.google.api-client:google-api-client-android:1.30.2' exclude module: 'httpclient'
     implementation 'com.google.oauth-client:google-oauth-client-jetty:1.32.1'
     implementation 'com.google.apis:google-api-services-sheets:v4-rev20210629-1.32.1'
-    compile 'com.google.android.gms:play-services-auth:16.0.1'
+    implementation 'com.google.android.gms:play-services-auth:16.0.1'
+    implementation 'com.android.support:design:25.3.1'
+    implementation 'com.google.android.gms:play-services-identity:8.4.0'
     
+    implementation files('libs/mail.jar')
+    implementation files('libs/activation.jar')
+    implementation files('libs/additional.jar')
 }

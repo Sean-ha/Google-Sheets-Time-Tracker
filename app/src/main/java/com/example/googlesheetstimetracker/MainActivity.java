@@ -1,213 +1,305 @@
 package com.example.googlesheetstimetracker;
 
 import android.Manifest;
+import android.accounts.AccountManager;
+import android.app.Dialog;
+import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.net.Uri;
+import android.content.SharedPreferences;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
-import androidx.annotation.Nullable;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
-import com.google.android.gms.auth.api.signin.GoogleSignIn;
-import com.google.android.gms.auth.api.signin.GoogleSignInClient;
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
-import com.google.android.gms.common.api.Scope;
-import com.google.api.client.auth.oauth2.AuthorizationCodeRequestUrl;
-import com.google.api.client.auth.oauth2.Credential;
-import com.google.api.client.extensions.android.http.AndroidHttp;
-import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp;
-import com.google.api.client.extensions.jetty.auth.oauth2.LocalServerReceiver;
-import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
-import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.material.snackbar.Snackbar;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
-import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.gson.GsonFactory;
-import com.google.api.client.util.store.FileDataStoreFactory;
+import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.services.sheets.v4.Sheets;
 import com.google.api.services.sheets.v4.SheetsScopes;
-import com.google.api.services.sheets.v4.model.BatchUpdateSpreadsheetRequest;
-import com.google.api.services.sheets.v4.model.CellData;
-import com.google.api.services.sheets.v4.model.ExtendedValue;
-import com.google.api.services.sheets.v4.model.GridCoordinate;
-import com.google.api.services.sheets.v4.model.Request;
-import com.google.api.services.sheets.v4.model.RowData;
-import com.google.api.services.sheets.v4.model.Spreadsheet;
-import com.google.api.services.sheets.v4.model.SpreadsheetProperties;
-import com.google.api.services.sheets.v4.model.UpdateCellsRequest;
+import com.google.api.services.sheets.v4.model.AppendValuesResponse;
+import com.google.api.services.sheets.v4.model.ValueRange;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.security.GeneralSecurityException;
-import java.util.ArrayList;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
     private static File CREDENTIALS_FILE;
     private static String CREDENTIALS_FILE_PATH;
     private static Sheets service;
-    private GoogleAccountCredential credential;
 
     // From https://developers.google.com/sheets/api/quickstart/java
     private static final String APPLICATION_NAME = "Google Sheets Time Tracker";
     private static final JsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
     private static final String TOKENS_DIRECTORY_PATH = "tokens";
+    private static final String PREF_ACCOUNT_NAME = "accountName";
+    private final int REQUEST_CODE = 1;
+
     /**
      * Global instance of the scopes required by this quickstart.
      * If modifying these scopes, delete your previously saved tokens/ folder.
      */
     private final List<String> SCOPES = Collections.singletonList(SheetsScopes.SPREADSHEETS);
 
+
+    private GoogleAccountCredential mCredential;
+    private InternetDetector internetDetector;
+    private String currSpreadsheetId;
+
+    Button clockInBtn;
+    Button clockOutBtn;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
-        }
+        init();
+        initAuth();
+        chooseAccount();
 
-        // requestSignIn();
+        // NOTE: This is the TEST NGYA spreadsheet
+        currSpreadsheetId = "1_mXaaGUHur5d13X5NrK6U3fZcfEzVojH4ISCvtcTOcU";
 
         TextView tempTextView = (TextView) findViewById(R.id.tempTextView);
 
-        // createCredentialsFile();
-        // CREDENTIALS_FILE = new File(getApplicationContext().getExternalFilesDir(null), "credentials.json");
-        // CREDENTIALS_FILE_PATH = CREDENTIALS_FILE.getAbsolutePath();
-
-        // service = getSheetsService();
-
-        Button btn = (Button) findViewById(R.id.clockInBtn);
-        btn.setOnClickListener(new View.OnClickListener() {
+        findViewById(R.id.changeAccountBtn).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                // NOTE: This is the NGYA spreadsheet
-                String spreadsheetId = "1ZbqRJErnD-GB8Nm9EKnfbkyG3j4z1tIoIIVf5OCq-04";
-
-                /*
-                List<Request> requests = new ArrayList<>();
-                List<CellData> values = new ArrayList<>();
-
-                values.add(new CellData()
-                        .setUserEnteredValue(new ExtendedValue()
-                                .setStringValue("Hello World!")));
-
-                requests.add(new Request()
-                        .setUpdateCells(new UpdateCellsRequest()
-                                .setStart(new GridCoordinate()
-                                        .setSheetId(0)
-                                        .setRowIndex(0)
-                                        .setColumnIndex(0))
-                                .setRows(Arrays.asList(
-                                        new RowData().setValues(values)))
-                                .setFields("userEnteredValue,userEnteredFormat.backgroundColor")));
-
-                BatchUpdateSpreadsheetRequest batchUpdateRequest = new BatchUpdateSpreadsheetRequest()
-                        .setRequests(requests);
-                try {
-                    service.spreadsheets().batchUpdate(spreadsheetId, batchUpdateRequest)
-                            .execute();
-                } catch (IOException e) {
-                    e.printStackTrace();
+                // Check / request permissions if necessary
+                if (Utils.checkPermission(getApplicationContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+                    startActivityForResult(mCredential.newChooseAccountIntent(), Utils.REQUEST_ACCOUNT_PICKER);
+                } else {
+                    ActivityCompat.requestPermissions(MainActivity.this,
+                            new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_CODE);
                 }
-                */
+            }
+        });
+
+        clockInBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                getResultsFromApi(v, true);
+            }
+        });
+        clockOutBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                getResultsFromApi(v, false);
             }
         });
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
+    private void init() {
+        // Initializing Internet Checker
+        internetDetector = new InternetDetector(getApplicationContext());
 
-        if (requestCode == 1) {
-            if (resultCode == RESULT_OK) {
-                GoogleSignIn.getSignedInAccountFromIntent(data).addOnSuccessListener((account) -> {
-                    GoogleAccountCredential.usingOAuth2(getApplicationContext(), SCOPES)
-                            .setSelectedAccount(account.getAccount());
+        clockInBtn = (Button) findViewById(R.id.clockInBtn);
+        clockOutBtn = (Button) findViewById(R.id.clockOutBtn);
+    }
 
-                    HttpTransport httpTransport = AndroidHttp.newCompatibleTransport();
-                    service = new Sheets.Builder(httpTransport, JSON_FACTORY, credential)
-                            .setApplicationName(getString(R.string.app_name))
-                            .build();
+    private void initAuth() {
+        // Initialize credentials and service object.
+        mCredential = GoogleAccountCredential.usingOAuth2(
+                getApplicationContext(), SCOPES)
+                .setBackOff(new ExponentialBackOff());
+        service = getSheetsService();
+    }
 
-                    // createSpreadsheet();
-                    executeAction("1ZbqRJErnD-GB8Nm9EKnfbkyG3j4z1tIoIIVf5OCq-04");
-                });
+    private void getResultsFromApi(View view, boolean clockIn) {
+        if (!isGooglePlayServicesAvailable()) {
+            acquireGooglePlayServices();
+        }
+        else if (mCredential.getSelectedAccountName() == null) {
+            chooseAccount();
+        }
+        else if (!internetDetector.checkMobileInternetConn()) {
+            showMessage(view, "No network connection available.");
+        }
+        /* else if (!Utils.isNotEmpty(edtToAddress)) {
+            showMessage(view, "To address Required");
+        } else if (!Utils.isNotEmpty(edtSubject)) {
+            showMessage(view, "Subject Required");
+        } else if (!Utils.isNotEmpty(edtMessage)) {
+            showMessage(view, "Message Required");
+        } */
+        else {
+            new UpdateSheet(clockIn, currSpreadsheetId).execute();
+        }
+    }
+
+    // Method for Checking Google Play Service is Available
+    private boolean isGooglePlayServicesAvailable() {
+        GoogleApiAvailability apiAvailability = GoogleApiAvailability.getInstance();
+        int connectionStatusCode = apiAvailability.isGooglePlayServicesAvailable(this);
+        return connectionStatusCode == ConnectionResult.SUCCESS;
+    }
+
+    // Method to Show Info, If Google Play Service is Not Available.
+    private void acquireGooglePlayServices() {
+        GoogleApiAvailability apiAvailability = GoogleApiAvailability.getInstance();
+        int connectionStatusCode = apiAvailability.isGooglePlayServicesAvailable(this);
+        if (apiAvailability.isUserResolvableError(connectionStatusCode)) {
+            showGooglePlayServicesAvailabilityErrorDialog(connectionStatusCode);
+        }
+    }
+
+    // Method for Google Play Services Error Info
+    void showGooglePlayServicesAvailabilityErrorDialog(final int connectionStatusCode) {
+        GoogleApiAvailability apiAvailability = GoogleApiAvailability.getInstance();
+        Dialog dialog = apiAvailability.getErrorDialog(
+                MainActivity.this,
+                connectionStatusCode,
+                Utils.REQUEST_GOOGLE_PLAY_SERVICES);
+        dialog.show();
+    }
+
+    // Storing Mail ID using Shared Preferences
+    private void chooseAccount() {
+        if (Utils.checkPermission(getApplicationContext(), Manifest.permission.GET_ACCOUNTS)) {
+            String accountName = getPreferences(Context.MODE_PRIVATE).getString(PREF_ACCOUNT_NAME, null);
+            if (accountName != null) {
+                mCredential.setSelectedAccountName(accountName);
+            } else {
+                // Start a dialog from which the user can choose an account
+                startActivityForResult(mCredential.newChooseAccountIntent(), Utils.REQUEST_ACCOUNT_PICKER);
             }
+        } else {
+            ActivityCompat.requestPermissions(MainActivity.this,
+                    new String[]{Manifest.permission.GET_ACCOUNTS}, Utils.REQUEST_PERMISSION_GET_ACCOUNTS);
         }
     }
 
-    private void executeAction(String spreadsheetId) {
-        new UpdateSheet().execute(spreadsheetId);
-    }
-
-    private void createSpreadsheet() {
-        Spreadsheet spreadsheet = new Spreadsheet().setProperties(new SpreadsheetProperties().setTitle("aNewSpreadsheet!!"));
-
-        try {
-            spreadsheet = service.spreadsheets().create(spreadsheet).execute();
-        } catch (IOException e) {
-            e.printStackTrace();
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String permissions[], @NonNull int[] grantResults) {
+        switch (requestCode) {
+            case Utils.REQUEST_PERMISSION_GET_ACCOUNTS:
+                chooseAccount();
+                break;
         }
     }
 
-    private void requestSignIn() {
-        GoogleSignInOptions signInOptions = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                .requestScopes(new Scope(SheetsScopes.SPREADSHEETS)).requestEmail()
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        switch (requestCode) {
+            case Utils.REQUEST_GOOGLE_PLAY_SERVICES:
+                if (resultCode != RESULT_OK) {
+                    showMessage(clockInBtn, "This app requires Google Play Services. Please install " +
+                            "Google Play Services on your device and relaunch this app.");
+                } else {
+                    getResultsFromApi(clockInBtn, true);
+                }
+                break;
+            case Utils.REQUEST_ACCOUNT_PICKER:
+                if (resultCode == RESULT_OK && data != null && data.getExtras() != null) {
+                    String accountName = data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
+                    if (accountName != null) {
+                        SharedPreferences settings = getPreferences(Context.MODE_PRIVATE);
+                        SharedPreferences.Editor editor = settings.edit();
+                        editor.putString(PREF_ACCOUNT_NAME, accountName);
+                        editor.apply();
+                        mCredential.setSelectedAccountName(accountName);
+                    }
+                }
+                break;
+        }
+    }
+
+    private void showMessage(View view, String message) {
+        Snackbar.make(view, message, Snackbar.LENGTH_LONG).show();
+    }
+
+    private Sheets getSheetsService() {
+        HttpTransport transport = new NetHttpTransport();
+        Sheets service = new Sheets.Builder(transport, JSON_FACTORY, mCredential)
+                .setApplicationName(APPLICATION_NAME)
                 .build();
-        GoogleSignInClient client = GoogleSignIn.getClient(getApplicationContext(), signInOptions);
 
-        startActivityForResult(client.getSignInIntent(), 1);
+        return service;
     }
 
 
-    private class UpdateSheet extends AsyncTask<String, Void, Void> {
+    private class UpdateSheet extends AsyncTask<Void, Void, Void> {
+        // True if user wants to clock in, false if user wants to clock out
+        private boolean clockIn;
+        private String spreadsheetId;
+
+        UpdateSheet(boolean clockIn, String spreadsheetId) {
+            this.clockIn = clockIn;
+            this.spreadsheetId = spreadsheetId;
+        }
+
 
         @Override
-        protected Void doInBackground(String... params) {
-            String spreadsheetId = params[0];
-
-            List<Request> requests = new ArrayList<>();
-            List<CellData> values = new ArrayList<>();
-
-
-            values.add(new CellData()
-                    .setUserEnteredValue(new ExtendedValue()
-                            .setStringValue("Hello World!")));
-            requests.add(new Request()
-                    .setUpdateCells(new UpdateCellsRequest()
-                            .setStart(new GridCoordinate()
-                                    .setSheetId(0)
-                                    .setRowIndex(0)
-                                    .setColumnIndex(0))
-                            .setRows(Arrays.asList(
-                                    new RowData().setValues(values)))
-                            .setFields("userEnteredValue,userEnteredFormat.backgroundColor")));
-
-            BatchUpdateSpreadsheetRequest batchUpdateRequest = new BatchUpdateSpreadsheetRequest()
-                    .setRequests(requests);
-            try {
-                service.spreadsheets().batchUpdate(spreadsheetId, batchUpdateRequest)
-                        .execute();
-            } catch (IOException e) {
-                e.printStackTrace();
+        protected Void doInBackground(Void... params) {
+            LocalDateTime now = LocalDateTime.now();
+            // Before 5AM counts as the previous day
+            if (now.getHour() <= 5) {
+                now = now.minusDays(1);
             }
 
+            if (clockIn) {
+                clockIn(now);
+            }
+            else {
+                clockOut(now);
+            }
+
+
             return null;
+        }
+
+        private void clockIn(LocalDateTime now) {
+            String lastYear = getLastDataInColumn("A");
+            // Same year
+            if (Integer.parseInt(lastYear) == now.getYear()) {
+                String lastMonth = getLastDataInColumn("B");
+                // Same month
+                if (lastMonth.equalsIgnoreCase(now.getMonth().toString())) {
+                    // TODO: Optimize this (it's doing repeated api calls)
+                    int lastDayIndex = getLastRowInColumn("C");
+                    String lastDay = getDataInCell("C", lastDayIndex);
+                    int insertPos = lastDayIndex;
+                    // Continues to try to search upwards until it finds a valid day.
+                    while (lastDay == null && lastDayIndex > 1) {
+                        lastDayIndex--;
+                        lastDay = getDataInCell("C", lastDayIndex);
+                    }
+                    // Same day
+                    if (Integer.parseInt(lastDay) == now.getDayOfMonth()) {
+                        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("h:mm a");
+                        String currTime = now.format(formatter);
+                        appendRow("E" + (insertPos + 1), Arrays.asList(currTime), "INSERT_ROWS");
+                    }
+                }
+            }
+        }
+
+        private void clockOut(LocalDateTime now) {
+            // No need to check date, we can assume that the date exists already
+            // TODO: Optimize this (it's doing repeated api calls)
+            int lastDayIndex = getLastRowInColumn("C");
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("h:mm a");
+            String currTime = now.format(formatter);
+            appendRow("F" + (lastDayIndex), Arrays.asList(currTime), "OVERWRITE");
         }
 
         @Override
@@ -221,71 +313,77 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected void onProgressUpdate(Void... values) {
         }
-    }
 
-        /**
-         * Creates an authorized Credential object.
-         *
-         * @param HTTP_TRANSPORT The network HTTP Transport.
-         * @return An authorized Credential object.
-         * @throws IOException If the credentials.json file cannot be found.
-         */
-        private Credential getCredentials(final NetHttpTransport HTTP_TRANSPORT) throws IOException {
-            // Load client secrets.
-            InputStream in = getApplicationContext().getAssets().open("private/oauth_credentials.json");
-            if (in == null) {
-                throw new FileNotFoundException("Resource not found: " + CREDENTIALS_FILE_PATH);
-            }
-            GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(JSON_FACTORY, new InputStreamReader(in));
+        // Appends the given row to the end of the given range
+        private AppendValuesResponse appendRow(String range, List<Object> row, String insertDataOption) {
+            String valueInputOption = "USER_ENTERED";
+            List<List<Object>> values = Arrays.asList(row);
+            ValueRange requestBody = new ValueRange();
+            requestBody.setValues(values);
 
-            createTokenFolderIfMissing();
-
-            // Build flow and trigger user authorization request.
-            GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
-                    HTTP_TRANSPORT, JSON_FACTORY, clientSecrets, SCOPES)
-                    .setDataStoreFactory(new FileDataStoreFactory(getTokenFolder()))
-                    .setAccessType("offline")
-                    .build();
-            LocalServerReceiver receiver = new LocalServerReceiver.Builder().setPort(8888).build();
-
-            AuthorizationCodeInstalledApp ab = new AuthorizationCodeInstalledApp(flow, receiver) {
-                protected void onAuthorization(AuthorizationCodeRequestUrl authorizationUrl) throws IOException {
-                    String url = (authorizationUrl.build());
-                    Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    getApplicationContext().startActivity(browserIntent);
-                }
-            };
-            return ab.authorize("seanha2013@gmail.com");
-            // return new AuthorizationCodeInstalledApp(flow, receiver).authorize("seanha2013@gmail.com");
-        }
-
-        private void createTokenFolderIfMissing() {
-            File tokenFolder = getTokenFolder();
-            if (!tokenFolder.exists()) {
-                tokenFolder.mkdir();
-            }
-        }
-
-        private File getTokenFolder() {
-            return new File(getApplicationContext().getExternalFilesDir("").getAbsolutePath() + "/" + TOKENS_DIRECTORY_PATH);
-        }
-
-        private Sheets getSheetsService() {
-            NetHttpTransport HTTP_TRANSPORT = null;
-            Credential cred = null;
+            AppendValuesResponse response = null;
             try {
-                HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
-                cred = getCredentials(HTTP_TRANSPORT);
-            } catch (GeneralSecurityException e) {
-                e.printStackTrace();
+                Sheets.Spreadsheets.Values.Append request = service.spreadsheets().values().append(spreadsheetId, range, requestBody);
+                request.setValueInputOption(valueInputOption);
+                request.setInsertDataOption(insertDataOption);
+                response = request.execute();
             } catch (IOException e) {
                 e.printStackTrace();
             }
 
-            Sheets service = new Sheets.Builder(HTTP_TRANSPORT, JSON_FACTORY, cred)
-                    .setApplicationName(APPLICATION_NAME)
-                    .build();
-
-            return service;
+            if (response == null) {
+                showMessage(null, "API call failed, try again in a bit?");
+            }
+            return response;
         }
+
+        // Given a column name (i.e. A, B, C, etc.) return the row number of the last non-blank entry in that column
+        // Returns -1 if an error occurs
+        // It does this by appending an empty row to the sheet and then analyzing the response
+        private int getLastRowInColumn(String columnName) {
+            AppendValuesResponse response = appendRow(columnName + "3:" + columnName, Arrays.asList(new String[]{}), "INSERT_ROWS");
+
+            String updatedRange = response.getUpdates().getUpdatedRange();
+            Pattern p = Pattern.compile("^.*![A-Z]+(\\d+)$");
+            Matcher m = p.matcher(updatedRange);
+            if (m.matches()) {
+                int lastRow = Integer.parseInt(m.group(1)) - 1;
+                return lastRow;
+            }
+            else {
+                showMessage(clockInBtn, "ERROR: Regex failed to match");
+                return -1;
+            }
+        }
+
+        // Given a column name (i.e. A, B, C, etc.) return the data in the last non-blank entry in that column
+        // Returns null if an error occurs
+        private String getLastDataInColumn(String columnName) {
+            int lastIndex = getLastRowInColumn(columnName);
+
+            if (lastIndex == -1) {
+                return null;
+            }
+
+            return getDataInCell(columnName, lastIndex);
+        }
+
+        private String getDataInCell(String columnName, int rowIndex) {
+            ValueRange result = null;
+            try {
+                result = service.spreadsheets().values().get(spreadsheetId, columnName + rowIndex).execute();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            if (result == null) {
+                showMessage(null, "API call failed, try again in a bit?");
+            }
+
+            List<List<Object>> values = result.getValues();
+            if (values == null)
+                return null;
+            return result.getValues().get(0).get(0).toString();
+        }
+    }
 }
