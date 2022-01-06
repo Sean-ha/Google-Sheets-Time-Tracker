@@ -40,6 +40,7 @@ dependencies {
     implementation 'com.google.android.gms:play-services-auth:16.0.1'
     implementation 'com.android.support:design:25.3.1'
     implementation 'com.google.android.gms:play-services-identity:8.4.0'
+    implementation 'com.google.apis:google-api-services-drive:v3-rev197-1.25.0'
     
     implementation files('libs/mail.jar')
     implementation files('libs/activation.jar')

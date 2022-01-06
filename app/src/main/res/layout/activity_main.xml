@@ -4,47 +4,80 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:outlineProvider="bounds"
     tools:context=".MainActivity">
 
-    <Button
-        android:id="@+id/clockInBtn"
-        android:layout_width="wrap_content"
+    <EditText
+        android:id="@+id/notesField"
+        android:layout_width="274dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="76dp"
-        android:text="Clock In"
+        android:layout_marginTop="68dp"
+        android:autoSizeTextType="uniform"
+        android:ems="10"
+        android:gravity="start|top"
+        android:hint="Enter notes"
+        android:inputType="textMultiLine"
+        android:maxLines="6"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.498"
+        app:layout_constraintHorizontal_bias="0.496"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/changeAccountBtn" />
+        app:layout_constraintTop_toBottomOf="@+id/clockOutBtn" />
 
     <Button
         android:id="@+id/clockOutBtn"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="56dp"
+        android:layout_width="154dp"
+        android:layout_height="104dp"
+        android:layout_marginTop="44dp"
+        android:backgroundTint="@color/colorAccent"
         android:text="Clock Out"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.501"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/clockInBtn" />
+        app:layout_constraintTop_toBottomOf="@+id/spreadsheetDropdown" />
 
-    <TextView
-        android:id="@+id/tempTextView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="292dp"
-        android:text="TextView"
+    <Button
+        android:id="@+id/clockInBtn"
+        android:layout_width="154dp"
+        android:layout_height="104dp"
+        android:layout_marginTop="44dp"
+        android:backgroundTint="@color/colorPrimary"
+        android:text="Clock In"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.501"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/clockInBtn" />
+        app:layout_constraintTop_toBottomOf="@+id/spreadsheetDropdown" />
 
     <Button
         android:id="@+id/changeAccountBtn"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="36dp"
+        android:layout_marginTop="16dp"
         android:text="Change Account"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.498"
+        app:layout_constraintHorizontal_bias="0.509"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
+
+    <Spinner
+        android:id="@+id/spreadsheetDropdown"
+        android:layout_width="336dp"
+        android:layout_height="26dp"
+        android:layout_marginTop="8dp"
+        android:outlineProvider="bounds"
+        android:spinnerMode="dialog"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/spreadsheetIdText" />
+
+    <TextView
+        android:id="@+id/spreadsheetIdText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="28dp"
+        android:text="TextView"
+        android:textColor="#C4C4C4"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/changeAccountBtn" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

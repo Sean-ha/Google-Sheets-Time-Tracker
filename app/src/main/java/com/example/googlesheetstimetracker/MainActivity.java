@@ -9,7 +9,11 @@ import android.content.SharedPreferences;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -20,11 +24,14 @@ import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
+import com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.util.ExponentialBackOff;
+import com.google.api.services.drive.Drive;
+import com.google.api.services.drive.model.FileList;
 import com.google.api.services.sheets.v4.Sheets;
 import com.google.api.services.sheets.v4.SheetsScopes;
 import com.google.api.services.sheets.v4.model.AppendValuesResponse;
@@ -35,17 +42,23 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static com.example.googlesheetstimetracker.Utils.REQUEST_AUTHORIZATION;
 
 public class MainActivity extends AppCompatActivity {
     private static File CREDENTIALS_FILE;
     private static String CREDENTIALS_FILE_PATH;
     private static Sheets service;
+    private static Drive drive;
 
     // From https://developers.google.com/sheets/api/quickstart/java
     private static final String APPLICATION_NAME = "Google Sheets Time Tracker";
@@ -53,34 +66,43 @@ public class MainActivity extends AppCompatActivity {
     private static final String TOKENS_DIRECTORY_PATH = "tokens";
     private static final String PREF_ACCOUNT_NAME = "accountName";
     private final int REQUEST_CODE = 1;
+    private final String[] DAY_OF_WEEK_NAMES = new String[] {"Mon", "Tues", "Wed", "Thurs", "Fri", "Sat", "Sun"};
+    // The time that a day officially begins(e.g. 5 means 5AM)
+    private final int TIME_NEXT_DAY_START = 5;
 
     /**
      * Global instance of the scopes required by this quickstart.
      * If modifying these scopes, delete your previously saved tokens/ folder.
      */
-    private final List<String> SCOPES = Collections.singletonList(SheetsScopes.SPREADSHEETS);
+    private final List<String> SCOPES = Arrays.asList(SheetsScopes.SPREADSHEETS, SheetsScopes.DRIVE);
 
 
     private GoogleAccountCredential mCredential;
     private InternetDetector internetDetector;
+    private String testSpreadsheetId;
+
     private String currSpreadsheetId;
+
+    private HashMap<String, SpreadsheetItem> spreadsheets = new HashMap<String, SpreadsheetItem>();
+
 
     Button clockInBtn;
     Button clockOutBtn;
+    EditText notesField;
+    Spinner spreadsheetDropdown;
+    TextView spreadsheetIdText;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // NOTE: This is the TEST NGYA spreadsheet
+        testSpreadsheetId = "1_mXaaGUHur5d13X5NrK6U3fZcfEzVojH4ISCvtcTOcU";
+
         init();
         initAuth();
         chooseAccount();
-
-        // NOTE: This is the TEST NGYA spreadsheet
-        currSpreadsheetId = "1_mXaaGUHur5d13X5NrK6U3fZcfEzVojH4ISCvtcTOcU";
-
-        TextView tempTextView = (TextView) findViewById(R.id.tempTextView);
 
         findViewById(R.id.changeAccountBtn).setOnClickListener(new View.OnClickListener() {
             @Override
@@ -99,22 +121,65 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 getResultsFromApi(v, true);
+                showClockOutScreen();
             }
         });
         clockOutBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 getResultsFromApi(v, false);
+                showClockInScreen();
             }
         });
+
+        showClockInScreen();
+    }
+
+    private void showClockInScreen() {
+        clockInBtn.setVisibility(View.VISIBLE);
+        clockOutBtn.setVisibility(View.GONE);
+        notesField.setVisibility(View.GONE);
+    }
+
+    private void showClockOutScreen() {
+        clockOutBtn.setVisibility(View.VISIBLE);
+        clockInBtn.setVisibility(View.GONE);
+        notesField.setVisibility(View.VISIBLE);
     }
 
     private void init() {
         // Initializing Internet Checker
         internetDetector = new InternetDetector(getApplicationContext());
 
-        clockInBtn = (Button) findViewById(R.id.clockInBtn);
-        clockOutBtn = (Button) findViewById(R.id.clockOutBtn);
+        clockInBtn = findViewById(R.id.clockInBtn);
+        clockOutBtn = findViewById(R.id.clockOutBtn);
+        notesField = findViewById(R.id.notesField);
+        spreadsheetDropdown = findViewById(R.id.spreadsheetDropdown);
+        spreadsheetIdText = findViewById(R.id.spreadsheetIdText);
+
+        AdapterView.OnItemSelectedListener OnCatSpinnerCL = new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
+                ((TextView) parent.getChildAt(0)).setTextSize(18);
+                ((TextView) parent.getChildAt(0)).setTranslationY(21);
+
+                String selectedTitle = parent.getItemAtPosition(pos).toString();
+                currSpreadsheetId = spreadsheets.get(selectedTitle).spreadsheetId;
+                spreadsheetIdText.setText("id: " + currSpreadsheetId);
+
+                SharedPreferences settings = getPreferences(Context.MODE_PRIVATE);
+                // If it contains, it means we are clocked in
+                if (settings.contains(currSpreadsheetId)) {
+                    showClockOutScreen();
+                } else {
+                    showClockInScreen();
+                }
+            }
+
+            public void onNothingSelected(AdapterView<?> parent) { }
+        };
+        spreadsheetDropdown.setOnItemSelectedListener(OnCatSpinnerCL);
+
+        // TODO: Load HashMap on app load, save HashMap on app close (or other places too)
     }
 
     private void initAuth() {
@@ -123,6 +188,10 @@ public class MainActivity extends AppCompatActivity {
                 getApplicationContext(), SCOPES)
                 .setBackOff(new ExponentialBackOff());
         service = getSheetsService();
+        drive = getDriveService();
+
+        // Makes sure proper permissions are available, and also sets up the dropdown spinner's items
+        new GetPermissions(testSpreadsheetId).execute();
     }
 
     private void getResultsFromApi(View view, boolean clockIn) {
@@ -238,6 +307,15 @@ public class MainActivity extends AppCompatActivity {
         return service;
     }
 
+    private Drive getDriveService() {
+        HttpTransport transport = new NetHttpTransport();
+        Drive service = new Drive.Builder(transport, JSON_FACTORY, mCredential)
+                .setApplicationName(APPLICATION_NAME)
+                .build();
+
+        return service;
+    }
+
 
     private class UpdateSheet extends AsyncTask<Void, Void, Void> {
         // True if user wants to clock in, false if user wants to clock out
@@ -255,7 +333,7 @@ public class MainActivity extends AppCompatActivity {
             LocalDateTime now = LocalDateTime.now();
             if (clockIn) {
                 // Before 5AM counts as the previous day
-                if (now.getHour() <= 5) {
+                if (now.getHour() < TIME_NEXT_DAY_START) {
                     now = now.minusDays(1);
                 }
                 clockIn(now);
@@ -268,29 +346,69 @@ public class MainActivity extends AppCompatActivity {
         }
 
         private void clockIn(LocalDateTime now) {
+            // Gets the end of the spreadsheet
+            int lastDayIndex = getLastRowInColumn("C");
+            String lastDay = getDataInCell("C", lastDayIndex);
+            int insertPos = lastDayIndex;
+            // Continues to try to search upwards until it finds a valid day.
+            // Can result in large number of API calls (though it shouldn't be an issue for normal use cases)
+            while (lastDay == null && lastDayIndex > 1) {
+                lastDayIndex--;
+                lastDay = getDataInCell("C", lastDayIndex);
+            }
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("h:mm a");
+            String currTime = now.format(formatter);
+
             String lastYear = getLastDataInColumn("A");
             // Same year
             if (Integer.parseInt(lastYear) == now.getYear()) {
                 String lastMonth = getLastDataInColumn("B");
                 // Same month
                 if (lastMonth.equalsIgnoreCase(now.getMonth().toString())) {
-                    int lastDayIndex = getLastRowInColumn("C");
-                    String lastDay = getDataInCell("C", lastDayIndex);
-                    int insertPos = lastDayIndex;
-                    // Continues to try to search upwards until it finds a valid day.
-                    // Can result in large number of API calls (though it shouldn't be an issue for normal use cases)
-                    while (lastDay == null && lastDayIndex > 1) {
-                        lastDayIndex--;
-                        lastDay = getDataInCell("C", lastDayIndex);
-                    }
                     // Same day
                     if (Integer.parseInt(lastDay) == now.getDayOfMonth()) {
-                        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("h:mm a");
-                        String currTime = now.format(formatter);
                         appendRow("E" + (insertPos + 1), Arrays.asList(currTime), "INSERT_ROWS");
                     }
+                    // Different day
+                    else {
+                        newDay(insertPos + 1, now, currTime);
+                    }
+                }
+                // Different month
+                else {
+                    insertPos += 2;
+                    newMonth(insertPos, now);
+                    newDay(insertPos + 1, now, currTime);
                 }
             }
+            // Different year
+            else {
+                // TODO: Some issue with new year (reproduce: try inserting into actual NGYA timesheet)
+                insertPos += 2;
+                appendRow("A" + insertPos, Arrays.asList(now.getYear(), getMonthName(now)), "INSERT_ROWS");
+                newDay(insertPos + 1, now, currTime);
+            }
+
+            // Set current spreadsheet as clocked in
+            SharedPreferences settings = getPreferences(Context.MODE_PRIVATE);
+            SharedPreferences.Editor editor = settings.edit();
+            editor.putBoolean(currSpreadsheetId, true);
+            editor.apply();
+        }
+
+        private void newDay(int insertPos, LocalDateTime now, String formattedTime) {
+            appendRow("C" + insertPos, Arrays.asList(now.getDayOfMonth() + "",
+                    DAY_OF_WEEK_NAMES[now.getDayOfWeek().getValue() - 1],
+                    formattedTime), "INSERT_ROWS");
+        }
+
+        private void newMonth(int insertPos, LocalDateTime now) {
+            appendRow("B" + (insertPos), Arrays.asList(getMonthName(now)),
+                    "INSERT_ROWS");
+        }
+
+        private String getMonthName(LocalDateTime date) {
+            return date.getMonth().getDisplayName(TextStyle.FULL, Locale.getDefault());
         }
 
         private void clockOut(LocalDateTime now) {
@@ -303,18 +421,35 @@ public class MainActivity extends AppCompatActivity {
 
             // Get time difference between start and stop
             String startTime = getLastDataInColumn("E");
-            System.out.println(startTime);
             LocalTime time = LocalTime.parse(startTime, formatter);
             LocalDateTime startDateTime = LocalDateTime.of(now.getYear(), now.getMonth(), now.getDayOfMonth(), time.getHour(), time.getMinute());
+            // Start time is before 12AM and end time is after 12AM: offset start time by a day backwards
+            if (startDateTime.getHour() >= TIME_NEXT_DAY_START && now.getHour() < TIME_NEXT_DAY_START) {
+                startDateTime = startDateTime.minusDays(1);
+            }
             long minutesBetween = ChronoUnit.MINUTES.between(startDateTime, now);
 
-            appendRow("F" + (lastDayIndex), Arrays.asList(currTime, minutesBetween), "OVERWRITE");
+            // Get notes
+            String notes = notesField.getText().toString();
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    notesField.getText().clear();
+                }
+            });
 
-            // TODO: Let user input notes here
+            appendRow("F" + (lastDayIndex), Arrays.asList(currTime, minutesBetween, notes), "OVERWRITE");
+
+            // Set current spreadsheet as clocked out
+            SharedPreferences settings = getPreferences(Context.MODE_PRIVATE);
+            SharedPreferences.Editor editor = settings.edit();
+            editor.remove(spreadsheetId);
+            editor.apply();
         }
 
         @Override
         protected void onPostExecute(Void result) {
+            // TODO: Display text messages for successful clock in / clock out (and also the time at which they have been done)
         }
 
         @Override
@@ -343,7 +478,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             if (response == null) {
-                showMessage(null, "API call failed, try again in a bit?");
+                showMessage(clockInBtn, "API call failed, try again in a bit?");
             }
             return response;
         }
@@ -353,6 +488,9 @@ public class MainActivity extends AppCompatActivity {
         // It does this by appending an empty row to the sheet and then analyzing the response
         private int getLastRowInColumn(String columnName) {
             AppendValuesResponse response = appendRow(columnName + "3:" + columnName, Arrays.asList(new String[]{}), "INSERT_ROWS");
+
+            if (response == null)
+                return -1;
 
             String updatedRange = response.getUpdates().getUpdatedRange();
             Pattern p = Pattern.compile("^.*![A-Z]+(\\d+)$");
@@ -388,13 +526,75 @@ public class MainActivity extends AppCompatActivity {
             }
 
             if (result == null) {
-                showMessage(null, "API call failed, try again in a bit?");
+                showMessage(clockInBtn, "API call failed, try again in a bit?");
             }
 
             List<List<Object>> values = result.getValues();
             if (values == null)
                 return null;
             return result.getValues().get(0).get(0).toString();
+        }
+    }
+
+    private class GetPermissions extends AsyncTask<Void, Void, Void> {
+        private String spreadsheetId;
+
+        GetPermissions(String spreadsheetId) {
+            this.spreadsheetId = spreadsheetId;
+        }
+
+        @Override
+        protected Void doInBackground(Void... params) {
+            // Try to do a trivial edit to a Google Sheet to make sure proper permissions are in place
+            String valueInputOption = "USER_ENTERED";
+            String insertDataOption = "OVERWRITE";
+            List<List<Object>> values = Arrays.asList();
+            ValueRange requestBody = new ValueRange();
+            requestBody.setValues(values);
+
+            AppendValuesResponse response = null;
+            try {
+                Sheets.Spreadsheets.Values.Append request = service.spreadsheets().values().append(spreadsheetId, "A1", requestBody);
+                request.setValueInputOption(valueInputOption);
+                request.setInsertDataOption(insertDataOption);
+                response = request.execute();
+            } catch (UserRecoverableAuthIOException e) {
+                startActivityForResult(e.getIntent(), REQUEST_AUTHORIZATION);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            FileList listResponse = null;
+            try {
+                Drive.Files.List listRequest = drive.files().list();
+                listRequest.setQ("mimeType='application/vnd.google-apps.spreadsheet' and visibility = 'limited' and trashed = false");
+                listResponse = listRequest.execute();
+            } catch (UserRecoverableAuthIOException e) {
+                startActivityForResult(e.getIntent(), REQUEST_AUTHORIZATION);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            List<com.google.api.services.drive.model.File> files = listResponse.getFiles();
+            List<String> fileTitles = new ArrayList<String>();
+
+            for (com.google.api.services.drive.model.File file : files) {
+                fileTitles.add(file.getName());
+                // TODO: Favorite spreadsheets
+                spreadsheets.put(file.getName(), new SpreadsheetItem(file.getId(), false));
+            }
+            ArrayAdapter<String> adapter = new ArrayAdapter<String>(
+                    getApplicationContext(), R.layout.support_simple_spinner_dropdown_item, fileTitles);
+
+            // Set the dropdown items
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    spreadsheetDropdown.setAdapter(adapter);
+                }
+            });
+
+            return null;
         }
     }
 }
