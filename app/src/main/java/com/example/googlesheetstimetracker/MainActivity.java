@@ -37,8 +37,16 @@ import com.google.api.services.sheets.v4.SheetsScopes;
 import com.google.api.services.sheets.v4.model.AppendValuesResponse;
 import com.google.api.services.sheets.v4.model.ValueRange;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -48,24 +56,27 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.example.googlesheetstimetracker.Utils.REQUEST_AUTHORIZATION;
 
 public class MainActivity extends AppCompatActivity {
-    private static File CREDENTIALS_FILE;
-    private static String CREDENTIALS_FILE_PATH;
     private static Sheets service;
     public static Drive drive;
 
     // From https://developers.google.com/sheets/api/quickstart/java
     private static final String APPLICATION_NAME = "Google Sheets Time Tracker";
     private static final JsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
-    private static final String TOKENS_DIRECTORY_PATH = "tokens";
     private static final String PREF_ACCOUNT_NAME = "accountName";
+    private static final String PREF_CHOSEN_SHEETS = "savedChosenSheets";
+    private static final String PREF_CLOCK_IN_MESSAGE = "savedClockInMsg";
+    private static final String PREF_LAST_CHOSEN_SHEET = "lastChosenSheet";
     private final int REQUEST_CODE = 1;
     private final String[] DAY_OF_WEEK_NAMES = new String[] {"Mon", "Tues", "Wed", "Thurs", "Fri", "Sat", "Sun"};
+    private final String[] ENCOURAGEMENT_PHRASES = new String[] {"Nice job!", "Good job!", "Great job!", "Nice work!",
+            "Good work!", "Great work!",  "Well done!", "Nice!", "Let's go!", "Good stuff!", "Great stuff!", "Nicely done!", "You did good."};
     // The time that a day officially begins(e.g. 5 means 5AM)
     private final int TIME_NEXT_DAY_START = 5;
 
@@ -81,12 +92,14 @@ public class MainActivity extends AppCompatActivity {
     private String testSpreadsheetId;
 
     private String currSpreadsheetId;
+    private String currSelectedTitle;
 
     // Array of the sheets that are currently available in the dropdown
     private String[] chosenArr;
 
     // Key: spreadsheet name, Value: spreadsheet id
     public static HashMap<String, String> spreadsheetMap = new HashMap<String, String>();
+    private File spreadsheetMapFile;
 
     Button clockInBtn;
     Button clockOutBtn;
@@ -95,6 +108,8 @@ public class MainActivity extends AppCompatActivity {
     TextView spreadsheetIdText;
     Button chooseSheetsBtn;
 
+    TextView clockInMessageText;
+    TextView clockOutMessageText;
 
 
     @Override
@@ -111,12 +126,32 @@ public class MainActivity extends AppCompatActivity {
 
         // Came back from ActivateSpreadsheetsActivity; set dropdown items and save it
         if (getIntent().hasExtra("sheetsChosen")) {
-            // TODO: Sort array here (don't need to do it elsewhere I think)
             chosenArr = getIntent().getExtras().getStringArray("sheetsChosen");
-            ArrayAdapter<String> adapter = new ArrayAdapter<String>(
-                    getApplicationContext(), R.layout.support_simple_spinner_dropdown_item, chosenArr);
+            Arrays.sort(chosenArr);
+            setDropdownItems();
 
-            spreadsheetDropdown.setAdapter(adapter);
+            // Save chosen array
+            SharedPreferences settings = getPreferences(Context.MODE_PRIVATE);
+            SharedPreferences.Editor editor = settings.edit();
+            JSONArray jArray = new JSONArray();
+            try {
+                jArray = new JSONArray(chosenArr);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            editor.putString(PREF_CHOSEN_SHEETS, jArray.toString());
+            editor.apply();
+
+            // Save id / name HashMap to internal memory
+            ObjectOutputStream outputStream = null;
+            try {
+                outputStream = new ObjectOutputStream(new FileOutputStream(spreadsheetMapFile));
+                outputStream.writeObject(spreadsheetMap);
+                outputStream.flush();
+                outputStream.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
 
         showClockInScreen();
@@ -134,7 +169,16 @@ public class MainActivity extends AppCompatActivity {
         notesField.setVisibility(View.VISIBLE);
     }
 
+    // Uses variable "chosenArr" to set the items of the dropdown menu
+    private void setDropdownItems() {
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(
+                getApplicationContext(), R.layout.support_simple_spinner_dropdown_item, chosenArr);
+
+        spreadsheetDropdown.setAdapter(adapter);
+    }
+
     private void init() {
+        spreadsheetMapFile = new File(getDir("data", MODE_PRIVATE), "map");
         // Initializing Internet Checker
         internetDetector = new InternetDetector(getApplicationContext());
 
@@ -144,6 +188,12 @@ public class MainActivity extends AppCompatActivity {
         spreadsheetDropdown = findViewById(R.id.spreadsheetDropdown);
         spreadsheetIdText = findViewById(R.id.spreadsheetIdText);
         chooseSheetsBtn = findViewById(R.id.chooseSheetsBtn);
+        clockInMessageText = findViewById(R.id.clockInMessageText);
+        clockOutMessageText = findViewById(R.id.clockOutMessageText);
+
+        SharedPreferences settings = getPreferences(Context.MODE_PRIVATE);
+
+        clockInMessageText.setText(settings.getString(PREF_CLOCK_IN_MESSAGE, ""));
 
         findViewById(R.id.changeAccountBtn).setOnClickListener(new View.OnClickListener() {
             @Override
@@ -186,26 +236,63 @@ public class MainActivity extends AppCompatActivity {
                 ((TextView) parent.getChildAt(0)).setTextSize(18);
                 ((TextView) parent.getChildAt(0)).setTranslationY(21);
 
-                String selectedTitle = parent.getItemAtPosition(pos).toString();
-                currSpreadsheetId = spreadsheetMap.get(selectedTitle);
+                currSelectedTitle = parent.getItemAtPosition(pos).toString();
+                currSpreadsheetId = spreadsheetMap.get(currSelectedTitle);
 
                 spreadsheetIdText.setText("id: " + currSpreadsheetId);
 
-                SharedPreferences settings = getPreferences(Context.MODE_PRIVATE);
                 // If it contains, it means we are clocked in
                 if (settings.contains(currSpreadsheetId)) {
                     showClockOutScreen();
                 } else {
                     showClockInScreen();
                 }
+
+                // Save this sheet as being currently selected
+                SharedPreferences.Editor editor = settings.edit();
+                editor.putString(PREF_LAST_CHOSEN_SHEET, currSelectedTitle);
+                editor.apply();
             }
 
             public void onNothingSelected(AdapterView<?> parent) { }
         };
         spreadsheetDropdown.setOnItemSelectedListener(onItemSelectedListener);
 
-        // TODO: Load HashMap on app load, save HashMap on app close (or other places too)
-        // TODO: Load previously chosen sheets on app load. Save them when exiting 2nd activity
+        // Load previously chosen sheets and set dropdown menu accordingly
+        JSONArray jArray = null;
+        try {
+            String retrieved = settings.getString(PREF_CHOSEN_SHEETS, null);
+            if (retrieved != null) {
+                jArray = new JSONArray(retrieved);
+                chosenArr = new String[jArray.length()];
+                for (int i = 0; i < jArray.length(); i++) {
+                    chosenArr[i] = jArray.get(i).toString();
+                }
+                setDropdownItems();
+            }
+        } catch (JSONException e) {
+            showMessage(clockInBtn, "Error while loading saved chosen sheets");
+            e.printStackTrace();
+        }
+
+        // Set currently selected item from spinner (based on saved value in SharedPrefs)
+        String selectedSheet = settings.getString(PREF_LAST_CHOSEN_SHEET, null);
+        if (selectedSheet != null) {
+            spreadsheetDropdown.setSelection(((ArrayAdapter)spreadsheetDropdown.getAdapter()).getPosition(selectedSheet));
+        }
+
+        // Read HashMap from internal memory
+        ObjectInputStream inputStream = null;
+        try {
+            inputStream = new ObjectInputStream(new FileInputStream(spreadsheetMapFile));
+            spreadsheetMap = (HashMap<String, String>) inputStream.readObject();
+        } catch (FileNotFoundException e) {
+            showMessage(clockInBtn, "Map file not found in memory. Should  resolve on restart");
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
     }
 
     private void initAuth() {
@@ -232,13 +319,6 @@ public class MainActivity extends AppCompatActivity {
         else if (!internetDetector.checkMobileInternetConn()) {
             showMessage(view, "No network connection available.");
         }
-        /* else if (!Utils.isNotEmpty(edtToAddress)) {
-            showMessage(view, "To address Required");
-        } else if (!Utils.isNotEmpty(edtSubject)) {
-            showMessage(view, "Subject Required");
-        } else if (!Utils.isNotEmpty(edtMessage)) {
-            showMessage(view, "Message Required");
-        } */
         else {
             new UpdateSheet(clockIn, currSpreadsheetId).execute();
         }
@@ -411,16 +491,29 @@ public class MainActivity extends AppCompatActivity {
             }
             // Different year
             else {
-                // TODO: Some issue with new year (reproduce: try inserting into actual NGYA timesheet)
+                // TODO: Some issue when clocking in on a new year? (Can't seem to reproduce atm)
                 insertPos += 2;
                 appendRow("A" + insertPos, Arrays.asList(now.getYear(), getMonthName(now)), "INSERT_ROWS");
                 newDay(insertPos + 1, now, currTime);
             }
 
+            DateTimeFormatter prettyFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy h:mm a");
+            String prettyDate = now.format(prettyFormatter);
+            String msg = "[" + currSelectedTitle + "] IN at " + prettyDate;
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    clockInMessageText.setText(msg);
+                    clockOutMessageText.setText("");
+                }
+            });
+
             // Set current spreadsheet as clocked in
             SharedPreferences settings = getPreferences(Context.MODE_PRIVATE);
             SharedPreferences.Editor editor = settings.edit();
             editor.putBoolean(currSpreadsheetId, true);
+            // Save clock in message
+            editor.putString(PREF_CLOCK_IN_MESSAGE, msg);
             editor.apply();
         }
 
@@ -459,25 +552,35 @@ public class MainActivity extends AppCompatActivity {
 
             // Get notes
             String notes = notesField.getText().toString();
+
+            appendRow("F" + (lastDayIndex), Arrays.asList(currTime, minutesBetween, notes), "OVERWRITE");
+
+            // Set clock out message
+            DateTimeFormatter prettyFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy h:mm a");
+            String prettyDate = now.format(prettyFormatter);
+            String encouragement = ENCOURAGEMENT_PHRASES[new Random().nextInt(ENCOURAGEMENT_PHRASES.length)];
+            String msg = "OUT at " + prettyDate + " (" + minutesBetween + " mins). " + encouragement;
+
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
                     notesField.getText().clear();
+                    clockOutMessageText.setText(msg);
                 }
             });
-
-            appendRow("F" + (lastDayIndex), Arrays.asList(currTime, minutesBetween, notes), "OVERWRITE");
 
             // Set current spreadsheet as clocked out
             SharedPreferences settings = getPreferences(Context.MODE_PRIVATE);
             SharedPreferences.Editor editor = settings.edit();
             editor.remove(spreadsheetId);
+
+            // Unsave clock in message
+            editor.remove(PREF_CLOCK_IN_MESSAGE);
             editor.apply();
         }
 
         @Override
         protected void onPostExecute(Void result) {
-            // TODO: Display text messages for successful clock in / clock out (and also the time at which they have been done)
         }
 
         @Override

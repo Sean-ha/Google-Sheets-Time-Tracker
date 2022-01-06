@@ -14,7 +14,7 @@
         android:padding="5dp">
 
         <CheckBox
-            android:id="@+id/todoCheckBox"
+            android:id="@+id/selectedCheckBox"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_centerHorizontal="true"

@@ -11,7 +11,7 @@
         android:id="@+id/notesField"
         android:layout_width="274dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="68dp"
+        android:layout_marginTop="12dp"
         android:autoSizeTextType="uniform"
         android:ems="10"
         android:gravity="start|top"
@@ -19,15 +19,14 @@
         android:inputType="textMultiLine"
         android:maxLines="6"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.496"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/clockOutBtn" />
+        app:layout_constraintTop_toBottomOf="@+id/clockOutMessageText" />
 
     <Button
         android:id="@+id/clockOutBtn"
         android:layout_width="154dp"
         android:layout_height="104dp"
-        android:layout_marginTop="44dp"
+        android:layout_marginTop="32dp"
         android:backgroundTint="@color/colorAccent"
         android:text="Clock Out"
         app:layout_constraintEnd_toEndOf="parent"
@@ -39,7 +38,7 @@
         android:id="@+id/clockInBtn"
         android:layout_width="154dp"
         android:layout_height="104dp"
-        android:layout_marginTop="44dp"
+        android:layout_marginTop="32dp"
         android:backgroundTint="@color/colorPrimary"
         android:text="Clock In"
         app:layout_constraintEnd_toEndOf="parent"
@@ -84,10 +83,28 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="28dp"
-        android:text="TextView"
+        android:text="No spreadsheet loaded"
         android:textColor="#C4C4C4"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/changeAccountBtn" />
+
+    <TextView
+        android:id="@+id/clockInMessageText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="172dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/spreadsheetDropdown" />
+
+    <TextView
+        android:id="@+id/clockOutMessageText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/clockInMessageText" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

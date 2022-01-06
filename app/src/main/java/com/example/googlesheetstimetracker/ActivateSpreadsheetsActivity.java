@@ -18,6 +18,7 @@ import com.google.api.services.drive.model.FileList;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -96,8 +97,8 @@ public class ActivateSpreadsheetsActivity extends AppCompatActivity {
             }
 
             List<com.google.api.services.drive.model.File> files = listResponse.getFiles();
-            List<String> fileTitles = new ArrayList<String>();
 
+            MainActivity.spreadsheetMap = new HashMap<>();
             for (com.google.api.services.drive.model.File file : files) {
                 if (chosenSheets.contains(file.getName())) {
                     sheetsList.add(new SpreadsheetItemModel(file.getId(), file.getName(), true));
