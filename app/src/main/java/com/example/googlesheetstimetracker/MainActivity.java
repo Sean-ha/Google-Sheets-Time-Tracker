@@ -44,7 +44,6 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -58,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
     private static File CREDENTIALS_FILE;
     private static String CREDENTIALS_FILE_PATH;
     private static Sheets service;
-    private static Drive drive;
+    public static Drive drive;
 
     // From https://developers.google.com/sheets/api/quickstart/java
     private static final String APPLICATION_NAME = "Google Sheets Time Tracker";
@@ -83,14 +82,20 @@ public class MainActivity extends AppCompatActivity {
 
     private String currSpreadsheetId;
 
-    private HashMap<String, SpreadsheetItem> spreadsheets = new HashMap<String, SpreadsheetItem>();
+    // Array of the sheets that are currently available in the dropdown
+    private String[] chosenArr;
 
+    // Key: spreadsheet name, Value: spreadsheet id
+    public static HashMap<String, String> spreadsheetMap = new HashMap<String, String>();
 
     Button clockInBtn;
     Button clockOutBtn;
     EditText notesField;
     Spinner spreadsheetDropdown;
     TextView spreadsheetIdText;
+    Button chooseSheetsBtn;
+
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -103,6 +108,42 @@ public class MainActivity extends AppCompatActivity {
         init();
         initAuth();
         chooseAccount();
+
+        // Came back from ActivateSpreadsheetsActivity; set dropdown items and save it
+        if (getIntent().hasExtra("sheetsChosen")) {
+            // TODO: Sort array here (don't need to do it elsewhere I think)
+            chosenArr = getIntent().getExtras().getStringArray("sheetsChosen");
+            ArrayAdapter<String> adapter = new ArrayAdapter<String>(
+                    getApplicationContext(), R.layout.support_simple_spinner_dropdown_item, chosenArr);
+
+            spreadsheetDropdown.setAdapter(adapter);
+        }
+
+        showClockInScreen();
+    }
+
+    private void showClockInScreen() {
+        clockInBtn.setVisibility(View.VISIBLE);
+        clockOutBtn.setVisibility(View.GONE);
+        notesField.setVisibility(View.GONE);
+    }
+
+    private void showClockOutScreen() {
+        clockOutBtn.setVisibility(View.VISIBLE);
+        clockInBtn.setVisibility(View.GONE);
+        notesField.setVisibility(View.VISIBLE);
+    }
+
+    private void init() {
+        // Initializing Internet Checker
+        internetDetector = new InternetDetector(getApplicationContext());
+
+        clockInBtn = findViewById(R.id.clockInBtn);
+        clockOutBtn = findViewById(R.id.clockOutBtn);
+        notesField = findViewById(R.id.notesField);
+        spreadsheetDropdown = findViewById(R.id.spreadsheetDropdown);
+        spreadsheetIdText = findViewById(R.id.spreadsheetIdText);
+        chooseSheetsBtn = findViewById(R.id.chooseSheetsBtn);
 
         findViewById(R.id.changeAccountBtn).setOnClickListener(new View.OnClickListener() {
             @Override
@@ -131,39 +172,23 @@ public class MainActivity extends AppCompatActivity {
                 showClockInScreen();
             }
         });
+        chooseSheetsBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent startIntent = new Intent(getApplicationContext(), ActivateSpreadsheetsActivity.class);
+                startIntent.putExtra("currentlyChosenSheets", chosenArr);
+                startActivity(startIntent);
+            }
+        });
 
-        showClockInScreen();
-    }
-
-    private void showClockInScreen() {
-        clockInBtn.setVisibility(View.VISIBLE);
-        clockOutBtn.setVisibility(View.GONE);
-        notesField.setVisibility(View.GONE);
-    }
-
-    private void showClockOutScreen() {
-        clockOutBtn.setVisibility(View.VISIBLE);
-        clockInBtn.setVisibility(View.GONE);
-        notesField.setVisibility(View.VISIBLE);
-    }
-
-    private void init() {
-        // Initializing Internet Checker
-        internetDetector = new InternetDetector(getApplicationContext());
-
-        clockInBtn = findViewById(R.id.clockInBtn);
-        clockOutBtn = findViewById(R.id.clockOutBtn);
-        notesField = findViewById(R.id.notesField);
-        spreadsheetDropdown = findViewById(R.id.spreadsheetDropdown);
-        spreadsheetIdText = findViewById(R.id.spreadsheetIdText);
-
-        AdapterView.OnItemSelectedListener OnCatSpinnerCL = new AdapterView.OnItemSelectedListener() {
+        AdapterView.OnItemSelectedListener onItemSelectedListener = new AdapterView.OnItemSelectedListener() {
             public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
                 ((TextView) parent.getChildAt(0)).setTextSize(18);
                 ((TextView) parent.getChildAt(0)).setTranslationY(21);
 
                 String selectedTitle = parent.getItemAtPosition(pos).toString();
-                currSpreadsheetId = spreadsheets.get(selectedTitle).spreadsheetId;
+                currSpreadsheetId = spreadsheetMap.get(selectedTitle);
+
                 spreadsheetIdText.setText("id: " + currSpreadsheetId);
 
                 SharedPreferences settings = getPreferences(Context.MODE_PRIVATE);
@@ -177,9 +202,10 @@ public class MainActivity extends AppCompatActivity {
 
             public void onNothingSelected(AdapterView<?> parent) { }
         };
-        spreadsheetDropdown.setOnItemSelectedListener(OnCatSpinnerCL);
+        spreadsheetDropdown.setOnItemSelectedListener(onItemSelectedListener);
 
         // TODO: Load HashMap on app load, save HashMap on app close (or other places too)
+        // TODO: Load previously chosen sheets on app load. Save them when exiting 2nd activity
     }
 
     private void initAuth() {
@@ -190,8 +216,10 @@ public class MainActivity extends AppCompatActivity {
         service = getSheetsService();
         drive = getDriveService();
 
-        // Makes sure proper permissions are available, and also sets up the dropdown spinner's items
-        new GetPermissions(testSpreadsheetId).execute();
+        if (mCredential.getSelectedAccountName() != null) {
+            // Makes sure proper permissions are available, and also sets up the dropdown spinner's items
+            new GetPermissions(testSpreadsheetId).execute();
+        }
     }
 
     private void getResultsFromApi(View view, boolean clockIn) {
@@ -574,25 +602,6 @@ public class MainActivity extends AppCompatActivity {
             } catch (IOException e) {
                 e.printStackTrace();
             }
-
-            List<com.google.api.services.drive.model.File> files = listResponse.getFiles();
-            List<String> fileTitles = new ArrayList<String>();
-
-            for (com.google.api.services.drive.model.File file : files) {
-                fileTitles.add(file.getName());
-                // TODO: Favorite spreadsheets
-                spreadsheets.put(file.getName(), new SpreadsheetItem(file.getId(), false));
-            }
-            ArrayAdapter<String> adapter = new ArrayAdapter<String>(
-                    getApplicationContext(), R.layout.support_simple_spinner_dropdown_item, fileTitles);
-
-            // Set the dropdown items
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    spreadsheetDropdown.setAdapter(adapter);
-                }
-            });
 
             return null;
         }
