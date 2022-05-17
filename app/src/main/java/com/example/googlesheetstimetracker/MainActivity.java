@@ -1,5 +1,7 @@
 package com.example.googlesheetstimetracker;
 
+import static com.example.googlesheetstimetracker.Utils.REQUEST_AUTHORIZATION;
+
 import android.Manifest;
 import android.accounts.AccountManager;
 import android.app.Dialog;
@@ -59,8 +61,6 @@ import java.util.Locale;
 import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import static com.example.googlesheetstimetracker.Utils.REQUEST_AUTHORIZATION;
 
 public class MainActivity extends AppCompatActivity {
     private static Sheets service;
@@ -150,6 +150,22 @@ public class MainActivity extends AppCompatActivity {
                 outputStream.flush();
                 outputStream.close();
             } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        // Didn't come back from ActivateSpreadsheetsActivity; probably launched app for first time
+        // so read spreadsheets file from disk
+        else {
+            // Read HashMap from internal memory
+            ObjectInputStream inputStream = null;
+            try {
+                inputStream = new ObjectInputStream(new FileInputStream(spreadsheetMapFile));
+                spreadsheetMap = (HashMap<String, String>) inputStream.readObject();
+            } catch (FileNotFoundException e) {
+                showMessage(clockInBtn, "Map file not found in memory. Should  resolve on restart");
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (ClassNotFoundException e) {
                 e.printStackTrace();
             }
         }
@@ -279,19 +295,6 @@ public class MainActivity extends AppCompatActivity {
         String selectedSheet = settings.getString(PREF_LAST_CHOSEN_SHEET, null);
         if (selectedSheet != null) {
             spreadsheetDropdown.setSelection(((ArrayAdapter)spreadsheetDropdown.getAdapter()).getPosition(selectedSheet));
-        }
-
-        // Read HashMap from internal memory
-        ObjectInputStream inputStream = null;
-        try {
-            inputStream = new ObjectInputStream(new FileInputStream(spreadsheetMapFile));
-            spreadsheetMap = (HashMap<String, String>) inputStream.readObject();
-        } catch (FileNotFoundException e) {
-            showMessage(clockInBtn, "Map file not found in memory. Should  resolve on restart");
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
         }
     }
 
